@@ -1,0 +1,4 @@
+<launch>
+    <rosparam command="load" file="$(find ozurover_flask)/params/gps.yaml" />
+    <node pkg="ozurover_flask" type="app.py" name="gps_service" output="screen"></node>
+</launch>

@@ -1,81 +1,23 @@
-from flask import Flask, request, jsonify
-from flask_cors import CORS
+#! /usr/bin/env python
 import rospy
-from ozurover_messages.msg import *
-from ozurover_messages.srv import *
-from threading import Thread
+import threading
+from flask import Flask
+from ozurover_messages.msg import GPS
 
+rover_coordinates = [0.0, 0.0]
+
+def ros_callback(msg):
+    global rover_coordinates
+    rover_coordinates = [msg.latitude, msg.longitude]
+
+threading.Thread(target=lambda: rospy.init_node('gps_service', disable_signals=True)).start()
+rospy.Subscriber('/ares/gps', GPS, ros_callback)
 
 app = Flask(__name__)
-CORS(app)
 
-# Initialize ROS node
-rospy.init_node('flask_ros_bridge', anonymous=True)
-
-# Global variable to store rover's GPS data
-rover_gps_coordinates = [0, 0]  # Default latitude and longitude
-
-@app.route('/goal/enqueue', methods=['POST'])
-def enqueue_goal():
-    data = request.json
-    if 'gps' not in data or 'type' not in data:
-        print("Invalid request data")
-        return jsonify(success=False)
-    
-    requestMsg = AddMarkerRequest()
-    requestMsg.gps = GPS()
-    requestMsg.gps.latitude = float(data['gps'][0])
-    requestMsg.gps.longitude = float(data['gps'][1])
-    requestMsg.type = int(data['type'])
-
-    # Send ROS service request to /ares/goal/enqueue
-    rospy.wait_for_service('/ares/goal/enqueue')
-    try:
-        goal_enqueue = rospy.ServiceProxy('/ares/goal/enqueue', AddMarker)
-        response = goal_enqueue(requestMsg)
-        return jsonify(success=True)
-    except rospy.ServiceException and TypeError as e:
-        print("Service call failed: %s" % e)
-        return jsonify(success=False)
-
-@app.route('/goal/abort', methods=['POST'])
-def abort_goal():
-    rospy.wait_for_service('/ares/goal/abort')
-    try:
-        goal_abort = rospy.ServiceProxy('/ares/goal/abort', Abort)
-        response = goal_abort()  # No arguments needed for the service call
-        return jsonify(success=True)
-    except rospy.ServiceException as e:
-        print("Service call failed: %s" % e)
-        return jsonify(success=False)
-
-def read_base_gps_coordinates():
-    try:
-        with open('base_gps_coordinates.txt', 'r') as file:
-            coordinates = file.read().strip().split(',')
-            return [float(coordinates[0]), float(coordinates[1])]
-    except Exception as e:
-        print(f"Error reading base GPS coordinates: {e}")
-        return [0, 0]
-
-def update_rover_gps():
-    def callback(data):
-        global rover_gps_coordinates
-        rover_gps_coordinates = [data.latitude, data.longitude]
-
-    rospy.Subscriber("ares/gps", GPS, callback)
-    rospy.spin()
-
-Thread(target=update_rover_gps).start()
-
-@app.route('/gps/base', methods=['GET'])
-def get_base_gps():
-    coordinates = read_base_gps_coordinates()
-    return jsonify({"Coordinates": coordinates})
-
-@app.route('/gps/rover', methods=['GET'])
-def get_rover_gps():
-    return jsonify({"Coordinates": rover_gps_coordinates})
+@app.route('/gps/ares', methods=['GET'])
+def serve_gps():
+    return {'Coordinates': rover_coordinates}
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(port=3000)
